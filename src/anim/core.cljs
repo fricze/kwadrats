@@ -1,5 +1,5 @@
 (ns anim.core
-  (:require [cljs.core.async :as async :refer [<! >! <!! timeout chan alt! go]])
+  (:require [cljs.core.async :as async :refer [<! >! <!! timeout chan take! alt! go]])
   (:require-macros
    [cljs.core.async.macros :refer [go]]))
 
@@ -68,6 +68,8 @@
 
 ;;Some actual drawing
 
+
+;; Handle mouse position
 (def mouse-x (atom 0))
 (def mouse-y (atom 0))
 
@@ -78,29 +80,27 @@
                      (reset! mouse-y (* 1 (- (aget e "y") (aget canvas "offsetTop") 250)))
                      false))
 
+(.addEventListener js/window 
+                   "click" 
+                   (fn [e]
+                     (reset! randy-bullets (rands-from-zero 100 3))
+                     false))
+
 (def points (atom 0))
 
-(defn some-shit2 [x i]
-  (.moveTo ctx (+ i x) x)
-  (.lineTo ctx (+ (* 0.5 x) x) (+ (+ (* 0.5 x) x) i))
-  (.lineTo ctx (- x i) (* 2 x))
-  (.lineTo ctx (- x (* 0.5 x)) (- (+ (* 0.5 x) x) i))
-  (.lineTo ctx (+ i x) x)
-  (.stroke ctx))
-
-(defn twoRects [i hit! r r-gets x y]
+(defn draw-game [up-down old-hit rands randy-targets x y]
   (let [g @mouse-y
         target-y 0
         xx (nth x 0)
         xy (nth y 0)
-        up-down (if (> i 0.5) 0 230)
-        target-1-y (+ up-down (nth r-gets 0) (nth x 1))
-        target-2-y (+ up-down (nth r-gets 1) (- (nth x 1) 100))
-        target-3-y (+ up-down (nth r-gets 2) (+ 80 (nth x 1)))
+        up-down (if (> up-down 0.5) 0 230)
+        target-1-y (+ up-down (nth randy-targets 0) (nth x 1))
+        target-2-y (+ up-down (nth randy-targets 1) (- (nth x 1) 100))
+        target-3-y (+ up-down (nth randy-targets 2) (+ 80 (nth x 1)))
         
-        bullet-1-y (+ 80 (nth r 0) (nth x 1) g)
-        bullet-2-y (+ 80 (nth r 1) (- (nth x 1) 100) g)
-        bullet-3-y (+ 80 (nth r 2) (+ 80 (nth x 1)) g)]
+        bullet-1-y (+ 80 (nth rands 0) (nth x 1) g)
+        bullet-2-y (+ 80 (nth rands 1) (- (nth x 1) 100) g)
+        bullet-3-y (+ 80 (nth rands 2) (+ 80 (nth x 1)) g)]
     
 
     (animation-frame (fn []
@@ -114,16 +114,19 @@
       (apply fillThisRect (assoc x 1 bullet-3-y))
       (.restore ctx)
       
+      ;; Targets
       (apply fillThisRect (assoc y 1 (+ 0 target-1-y)))
       (apply fillThisRect (assoc y 1 (+ 0 target-2-y)))
       (apply fillThisRect (assoc y 1 (+ 0 target-3-y)))
       
-      (doseq [hit (filter identity (flatten hit!))]
+      (doseq [hit (filter identity (flatten old-hit))]
         (.save ctx)
         (aset ctx "fillStyle" (rgb 60 60 60))
         (apply fillThisRect (assoc y 1 (+ hit)))
         (.restore ctx))))
-      
+    
+    
+    ;; Check is someone whas hit?  
     (let 
       [hit (when (= xx (+ -20 (/ (:width canvas-attrs) 2)))
         (for [bullet [bullet-1-y bullet-2-y bullet-3-y]]
@@ -134,10 +137,12 @@
       (when (seq hit) (doseq [nb (filter identity (flatten hit))]
                         (swap! points inc)))
       
-      (if (seq hit) hit hit!))))
+      (if (seq hit) hit old-hit))))
 
 
-(def steps 
+(def randy-bullets (atom 0))
+
+(def steps-list
   [(let [steps [0 170 20 20]]
          (for [i (range 1 160)]
            (assoc steps
@@ -146,68 +151,43 @@
    (let [steps [(- (:width canvas-attrs) 20) 170 20 20]]
          (for [i (range 1 160)]
            (assoc steps
-             0 (- (nth steps 0) (* i 4)))))
-   
-   (let [steps [180 300 20 20]]
-         (for [i (range 1 80 #_20)]
-           (assoc steps
-             0 (+ 180 (* i 1))
-             1 (- 300 (* i 0.5))
-             2 (- 20 (* i 1))
-             3 (+ 20 (* i 1)))))])
+             0 (- (nth steps 0) (* i 4)))))])
 
 (def counter (atom 0))
 
 (go
-  (dotimes [_ 1]
+  (while true 
+    (let [#_(rand-times [(- (* 0.13 (.random js/Math)) 0.13)
+                      (- (* 0.13 (.random js/Math)) 0.13)])
+          ;; rand times gonna be useful later
+          up-down (.random js/Math)]
+      
+      (doseq [steps steps-list]
+        (reset! randy-bullets (rands-from-zero 100 3))
+        (let [randy-targets (rands-from-zero 140 3)]
+          (loop [step steps hit [] t 36 i 1]
+            (if-not (seq step)
+              0
+              (do (<! (timeout t))
+                (recur (rest step)
+                       (let [step (first step)]
+                         (draw-game up-down hit @randy-bullets randy-targets step (assoc step 0 (- (- (:width canvas-attrs) 20) (nth step 0)))))
+                       (if (< i 80)
+                         (* 0.98 t)
+                         (* 1.02 t))
+                       (inc i))))))
+         
+          (aset (by-id "points") "innerHTML" @points)
+          (swap! counter inc)))
     
-    (while true 
-      (let [rand-times [(+ -0.035 (* 0.13 (.random js/Math)))
-                        (+ -0.035 (* 0.13 (.random js/Math)))
-                        (+ -0.035 (* 0.13 (.random js/Math)))
-                        (+ -0.035 (* 0.13 (.random js/Math)))]
-            x-ray (.random js/Math)]
-        
-        (let [rands (rands-from-zero 140 3)
-            randy-targets (rands-from-zero 100 3)]
-        (loop [step (nth steps 0) hit! [] t 20 i 1]
-          (if-not (seq step)
-            0
-            (do (<! (timeout t))
-              (recur (rest step)
-                     (let [step (first step) i 1]
-                       (twoRects x-ray hit! rands randy-targets step (assoc step 0 (- (- (:width canvas-attrs) 20) (nth step 0)))))
-                     (if (< i 80)
-                       (* (- 0.99 (nth rand-times 0)) t)
-                       (* (- 0.99 (nth rand-times 1)) t))
-                     (inc i))))))
-      (aset (by-id "points") "innerHTML" @points)
-      (swap! counter inc)
-      
-      (let [rands (rands-from-zero 140 3)
-            randy-targets (rands-from-zero 100 3)] 
-        (loop [step (nth steps 1) hit! [] t 20 i 1]
-          (if-not (seq step)
-            0
-            (do (<! (timeout t))
-              (recur (rest step)
-                     (let [step (first step) i 2]
-                       (twoRects x-ray hit! rands randy-targets step (assoc step 0 (- (- (:width canvas-attrs) 20) (nth step 0)))))
-                     (if (< i 80)
-                       (* (- 0.99 (nth rand-times 2)) t)
-                       (* (- 0.99 (nth rand-times 3)) t))
-                     (inc i))))))
-      (aset (by-id "points") "innerHTML" @points))
-      (swap! counter inc)
-      
       (when (= @counter 20)
-        (js/alert (str "Zdobyłaś/eś " 0 " punktów po 20 atakach!"))
-        (js/alert (str "Żartowałem. Masz " @points "! Słabo! Zagraj jeszcze raz!"))
+        (js/alert (str "You’ve got " 0 " points after 20 attacks!"))
+        (js/alert (str "Just joking. You have " @points "! Poor! Play again!"))
         (reset! counter 0)
         (reset! points 0))
-      
+    
       (<! (timeout 100)))
 
-    (<! (timeout 200))))
+    (<! (timeout 200)))
 
 (println "Hello world!")
