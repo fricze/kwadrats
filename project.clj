@@ -1,25 +1,24 @@
 (defproject anim "0.1.0-SNAPSHOT"
-  :description "FIXME: write this!"
-  :url "http://example.com/FIXME"
+  :description "simple canvas game"
+  
+  :dependencies [[org.clojure/clojure "1.8.0"]
+                 [org.clojure/clojurescript "1.8.51"]
+                 [org.clojure/core.async "0.2.374"]]
 
-  :dependencies [[org.clojure/clojure "1.5.1"]
-                 [org.clojure/clojurescript "0.0-2138"]
-                 [org.clojure/core.async "0.1.267.0-0d7780-alpha"]]
+  :plugins [[lein-cljsbuild "1.1.3"]
+            [lein-figwheel "0.5.1"]]
 
-  :plugins [[lein-cljsbuild "1.0.1"]]
+  :profiles {:dev {:dependencies [[com.cemerick/piggieback "0.2.1"]
+                                  [figwheel-sidecar "0.5.2"]]}}
 
   :source-paths ["src"]
 
-  :cljsbuild { 
-    :builds [{:id "anim"
-              :source-paths ["src"]
-              :compiler {
-                :output-to "anim.js"
-                :output-dir "out"
-                :optimizations :none
-                :source-map true}}
-             {:id "anim-ready"
-              :source-paths ["src"]
-              :compiler {
-                :output-to "main.js"
-                :optimizations :advanced}}]})
+  :cljsbuild {:builds [{:id "anim"
+                        :source-paths ["src"]
+                        :figwheel true
+                        :compiler {:main "anim.core"
+                                   :asset-path "js/out"
+                                   :output-to "resources/public/js/main.js"
+                                   :output-dir "resources/public/js/out"
+                                   :optimizations :none
+                                   :source-map true}}]})
