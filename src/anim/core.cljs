@@ -2,134 +2,114 @@
   (:require [cljs.core.async :as async :refer [<! >! timeout chan take!]]
             [anim.dom :refer [by-id create-element append!]]
             [anim.view :refer [body canvas canvas-size]]
-            [anim.state :refer [randy-bullets counter]]
-            [anim.data :refer [rand-from-zero rands-from-zero]]
-            [anim.canvas :refer [fill-rect rgb animation-frame clear-canvas]]
+            [anim.state :refer [state]]
+            [anim.data :refer [rand-from-zero rands-from-zero in-range? reduce-points xoxo hits]]
+            [anim.canvas :refer [rectangle rgb animation-frame clear-canvas]]
             [anim.draw :refer [draw-bullets]]
-            [anim.steps :refer [steps-list]])
+            [anim.steps :refer [steps-list]]
+            [anim.mouse]
+            [anim.rules :refer [game-finish-info!]])
 
   (:require-macros
-   [cljs.core.async.macros :refer [go]]))
-
-(enable-console-print!)
+   [cljs.core.async.macros :refer [go go-loop]]))
 
 (append! body canvas)
 
 ;; Canvas setup
 (def ctx (.getContext canvas "2d"))
 
-;; Handle mouse position
-(def mouse-x (atom 0))
-(def mouse-y (atom 0))
 
-(.addEventListener js/window 
-                   "mousemove" 
-                   (fn [e]
-                     (reset! mouse-y (* 1 (- (aget e "y") (aget canvas "offsetTop") 250)))
-                     false))
+(enable-console-print!)
 
-(.addEventListener js/window 
-                   "click" 
-                   (fn [e]
-                     (reset! randy-bullets (rands-from-zero 100 3))
-                     false))
+(defn animate [{:keys [bullets x old-hit targets y]}]
+  (println x)
+  (println y)
 
-(def points (atom 0))
+  (animation-frame
+   (fn []
+     (clear-canvas ctx canvas-size (rgb 30 30 30))
 
-(defn draw-game [up-down old-hit rands randy-targets x y]
-  (let [g @mouse-y
-        target-y 0
-        xx (nth x 0)
-        xy (nth y 0)
-        up-down (if (> up-down 0.5) 0 230)
-        target-1-y (+ up-down (nth randy-targets 0) (nth x 1))
-        target-2-y (+ up-down (nth randy-targets 1) (- (nth x 1) 100))
-        target-3-y (+ up-down (nth randy-targets 2) (+ 80 (nth x 1)))
+     ;; Bullets
+     (.save ctx)
+     (aset ctx "fillStyle" (rgb 230 230 230))
+     (doseq [bullet bullets]
+       (apply rectangle ctx (assoc x 1 bullet)))
+     (.restore ctx)
 
-        bullet-1-y (+ 80 (nth rands 0) (nth x 1) g)
-        bullet-2-y (+ 80 (nth rands 1) (- (nth x 1) 100) g)
-        bullet-3-y (+ 80 (nth rands 2) (+ 80 (nth x 1)) g)]
+     ;; Draw targets
+     (doseq [target (filter
+                     ;; filter out hit targets
+                     (complement (into #{} old-hit))
+                     targets)]
+       (apply rectangle ctx (assoc y 1 target))))))
 
-    (animation-frame (fn []
-                       (clear-canvas ctx canvas-size (rgb 30 30 30))
+(add-watch
+ state :watcher
+ (fn [key atom old-state new-state]
+   (animate new-state)))
 
-                       ;; Bullets
-                       (.save ctx)
-                       (aset ctx "fillStyle" (rgb 230 230 230))
-                       (apply fill-rect ctx (assoc x 1 bullet-1-y))
-                       (apply fill-rect ctx (assoc x 1 bullet-2-y))
-                       (apply fill-rect ctx (assoc x 1 bullet-3-y))
-                       (.restore ctx)
+(defn multi-time [time] (* 5 time))
 
-                       ;; Targets
-                       (apply fill-rect ctx (assoc y 1 (+ 0 target-1-y)))
-                       (apply fill-rect ctx (assoc y 1 (+ 0 target-2-y)))
-                       (apply fill-rect ctx (assoc y 1 (+ 0 target-3-y)))
+(defonce run-game!
+  (memoize (fn []
+             (go-loop [up-down (.random js/Math)]
 
-                       (doseq [hit (filter identity (flatten old-hit))]
-                         (.save ctx)
-                         (aset ctx "fillStyle" (rgb 60 60 60))
-                         (apply fill-rect ctx (assoc y 1 (+ hit)))
-                         (.restore ctx))))
+               (doseq [steps steps-list]
+                 (swap! state assoc :randy-bullets (rands-from-zero 100 3))
 
+                 (let [randy-targets (rands-from-zero 140 3)]
+                   (loop [step steps
+                          hit []
+                          ;; time for one step, used for bullets speed manipulation
+                          t (multi-time 36)
+                          i 1]
 
-    ;; Check is someone whas hit?
-    (let
-        [hit (when (= xx (+ -20 (/ (:width canvas-size) 2)))
-               (for [bullet [bullet-1-y bullet-2-y bullet-3-y]]
-                 (for [target [target-1-y target-2-y target-3-y]]
-                   (when (some #{bullet} (range (- target 20) (+ target 20)))
-                     target))))]
+                     (if-not (seq step)
+                       0
+                       (do (<! (timeout t))
+                           (recur
+                            (rest step)
 
-      (when (seq hit) (doseq [nb (filter identity (flatten hit))]
-                        (swap! points inc)))
+                            (let [step (first step)
 
-      (if (seq hit) hit old-hit))))
+                                  x step
+                                  y (assoc step 0 (- (- (:width canvas-size) 20) (nth step 0)))
 
-(defn game-finished? [counter]
-  (= @counter 20))
+                                  rands (:randy-bullets @state)
 
-(defn game-finish-info! [counter]
-  (when (game-finished? counter)
-    (js/alert (str "You’ve got " 0 " points after 20 attacks!"))
-    (js/alert (str "Just joking. You have " @points "! Poor! Play again!"))
+                                  g (:mouse-y @state)
+                                  xx (nth x 0)
+                                  ;; xy (nth y 0)
 
-    (reset! counter 0)
-    (reset! points 0)))
+                                  up-down (if (> up-down 0.5) 0 230)
 
-(go
-  (while true
-    (let [#_(rand-times [(- (* 0.13 (.random js/Math)) 0.13)
-                         (- (* 0.13 (.random js/Math)) 0.13)])
-          ;; rand times gonna be useful later
-          up-down (.random js/Math)]
+                                  x1 (nth x 1)
 
-      (doseq [steps steps-list]
-        (reset! randy-bullets (rands-from-zero 100 3))
+                                  targets (xoxo randy-targets up-down x1)
+                                  bullets (xoxo rands 140 g)]
 
-        (let [randy-targets (rands-from-zero 140 3)]
-          (loop [step steps
-                 hit []
-                 t 36
-                 i 1]
-            (if-not (seq step)
-              0
-              (do (<! (timeout t))
-                  (recur (rest step)
-                         (let [step (first step)]
-                           (draw-game
-                            up-down hit
-                            @randy-bullets randy-targets
-                            step
-                            (assoc step 0 (- (- (:width canvas-size) 20) (nth step 0)))))
+                              (swap! state assoc
+                                     :bullets bullets
+                                     :targets targets
 
-                         (if (< i 80)
-                           (* 0.98 t)
-                           (* 1.02 t))
+                                     :x x
+                                     :y x
 
-                         (inc i))))))
+                                     :hit hit)
 
-        (aset (by-id "points") "innerHTML" @points)
-        (swap! counter inc)))
+                              (hits canvas-size state bullets targets xx hit))
 
-    (game-finish-info! counter)))
+                            (if (< i 80)
+                              (* 0.98 t)
+                              (* 1.02 t))
+
+                            (inc i))))))
+
+                 (aset (by-id "points") "innerHTML" (:points @state))
+                 (swap! state update :counter inc))
+
+               (game-finish-info! state)
+
+               (recur (.random js/Math))))))
+
+(run-game!)
