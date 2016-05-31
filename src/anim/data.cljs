@@ -11,24 +11,23 @@
   (and (> number start) (< number stop)))
 
 (defn reduce-points
-  [modifiers {:keys [shift targets], as coll} target]
-  (let [new-target (apply + target shift modifiers)]
+  [modifiers {:keys [shift new-points] :as coll} target]
+  (let [new-point (apply + target shift modifiers)]
     (assoc coll
            :shift (+ 80 shift)
-           :targets (conj targets
-                          new-target))))
+           :new-points (conj new-points new-point))))
 
-(defn xoxo [coll & modifiers]
-  (:targets
+(defn calculate-points-position [coll & modifiers]
+  (:new-points
    (reduce
     (partial reduce-points modifiers)
     {:shift -80
-     :targets []}
+     :new-points []}
     coll)))
 
-(defn hits [canvas-size state bullets targets xx old-hit]
+(defn hits [canvas-size state bullets targets bullets-current-x old-hit]
   (let
-      [bullets-in-middle (= xx (- (/ (:width canvas-size) 2) 20))
+      [bullets-in-middle (= bullets-current-x (- (/ (:width canvas-size) 2) 20))
        hit (when bullets-in-middle
              (for [bullet bullets
                    target targets

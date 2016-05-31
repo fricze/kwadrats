@@ -10,5 +10,5 @@
                (swap! state assoc :mouse-y (* 1 (- (aget e "y") (aget canvas "offsetTop") 250)))
                false)
   :click (fn [e]
-           (swap! state assoc :randy-bullets (rands-from-zero 100 3))
+           (swap! state assoc :random-bullets (rands-from-zero 100 3))
            false)})
